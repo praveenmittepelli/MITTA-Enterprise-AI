@@ -2,7 +2,7 @@ from app.observability import trace
 import logging
 import time
 from functools import lru_cache
-from pinecone import Pinecone, ServerlessSpec
+from importlib import import_module
 from app.config import settings
 
 
@@ -12,12 +12,13 @@ log = logging.getLogger(__name__)
 @lru_cache(maxsize=1)
 def index():
     """Return an initialized Pinecone index. Safe for repeated requests in one process."""
+    pinecone = import_module("pinecone")
     s = settings()
     if not s.pinecone_api_key:
         raise RuntimeError("PINECONE_API_KEY is missing from .env")
     if not s.pinecone_index_name:
         raise RuntimeError("PINECONE_INDEX_NAME is missing from .env")
-    pc = Pinecone(api_key=s.pinecone_api_key)
+    pc = pinecone.Pinecone(api_key=s.pinecone_api_key)
     name = s.pinecone_index_name
     # Describe rather than list: avoids listing every index and works for existing indexes.
     try:
@@ -29,7 +30,7 @@ def index():
         log.info('Creating Pinecone index %s (dimension=%d, metric=cosine)', name, s.embed_dim)
         try:
             pc.create_index(name=name, dimension=s.embed_dim, metric='cosine',
-                spec=ServerlessSpec(cloud=s.pinecone_cloud, region=s.pinecone_region))
+                spec=pinecone.ServerlessSpec(cloud=s.pinecone_cloud, region=s.pinecone_region))
         except Exception as create_exc:
             # Another process may have created the index concurrently.
             if getattr(create_exc, 'status', None) != 409:
