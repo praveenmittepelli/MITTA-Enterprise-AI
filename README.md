@@ -281,7 +281,7 @@ Add the following repository **Variables** under `Settings → Secrets and varia
 
 | Name | Example |
 | --- | --- |
-| `AWS_REGION` | `us-east-1` |
+| `AWS_REGION` | `us-east-2` |
 | `ECR_REPOSITORY_NAME` | `Mitta-enterprise-ai` |
 
 Add this repository **Secret**:
@@ -291,6 +291,7 @@ Add this repository **Secret**:
 | `AWS_ROLE_ARN` | ARN of the AWS IAM role assumed by GitHub Actions using OIDC |
 
 **Important:** `ECR_REPOSITORY_NAME` is just the name, **not** the full ECR URI. The ECR login action provides the registry URL.
+The workflow defaults `AWS_REGION` to `us-east-2` if the repository variable is unset; set the variable to the region containing your ECR repository and deployment resources.
 
 The workflow in `.github/workflows/cicd.yaml`:
 
