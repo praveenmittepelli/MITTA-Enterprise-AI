@@ -141,3 +141,4 @@ jobs:
           docker logs --tail 100 "$container_name" || true
           echo "Application did not become healthy within 150 seconds." >&2
           exit 1
+          
