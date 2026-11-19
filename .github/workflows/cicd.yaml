@@ -84,7 +84,7 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          container_name="Mitta-enterprise-ai"
+          container_name="mitta"
           env_file="/opt/Mitta/.env"
           registry="${IMAGE%%/*}"
           previous_image=""
