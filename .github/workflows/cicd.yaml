@@ -1,0 +1,143 @@
+name: Mitta Enterprise AI CI/CD to AWS
+
+on:
+  push:
+    branches:
+      - main
+      paths-ignore:
+        - README.md
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: mitta-aws-production-deployment
+  cancel-in-progress: false
+
+jobs:
+  integration:
+    name: Integration checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check Python syntax
+        run: python -m compileall -q app worker
+
+  build-and-push:
+    name: Build and push image
+    if: github.ref == 'refs/heads/main'
+    needs: integration
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set image URI
+        id: image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          REPOSITORY: ${{ vars.ECR_REPOSITORY_NAME }}
+        run: echo "image=$REGISTRY/$REPOSITORY:$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.image.outputs.image }}
+
+  deploy:
+    name: Deploy to EC2
+    if: github.ref == 'refs/heads/main'
+    needs: build-and-push
+    runs-on: [self-hosted, linux, x64, mitta-ec2]
+    env:
+      IMAGE: ${{ needs.build-and-push.outputs.image }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+    steps:
+      - name: Deploy and verify application
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          container_name="Mitta-enterprise-ai"
+          env_file="/opt/Mitta/.env"
+          registry="${IMAGE%%/*}"
+          previous_image=""
+          deployment_succeeded=false
+
+          if [[ ! -r "$env_file" ]]; then
+            echo "Runtime environment file is missing or unreadable: $env_file" >&2
+            exit 1
+          fi
+
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "$registry"
+          docker pull "$IMAGE"
+
+          if docker inspect "$container_name" >/dev/null 2>&1; then
+            previous_image="$(docker inspect --format '{{.Config.Image}}' "$container_name")"
+          fi
+
+          rollback_on_failure() {
+            status=$?
+            if [[ "$status" -ne 0 && "$deployment_succeeded" != true ]]; then
+              echo "Deployment failed; attempting to restore the previous container." >&2
+              docker rm -f "$container_name" >/dev/null 2>&1 || true
+              if [[ -n "$previous_image" ]]; then
+                docker run -d \
+                  --name "$container_name" \
+                  --restart unless-stopped \
+                  --env-file "$env_file" \
+                  -p 8000:8000 \
+                  "$previous_image" || echo "Previous container could not be restored." >&2
+              fi
+            fi
+          }
+          trap rollback_on_failure EXIT
+
+          docker rm -f "$container_name" >/dev/null 2>&1 || true
+          docker run -d \
+            --name "$container_name" \
+            --restart unless-stopped \
+            --env-file "$env_file" \
+            -p 8000:8000 \
+            "$IMAGE"
+
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8000/health/live \
+              && curl --fail --silent http://127.0.0.1:8000/health/ready; then
+              deployment_succeeded=true
+              echo "Deployment is healthy: $IMAGE"
+              exit 0
+            fi
+            sleep 5
+          done
+
+          docker logs --tail 100 "$container_name" || true
+          echo "Application did not become healthy within 150 seconds." >&2
+          exit 1

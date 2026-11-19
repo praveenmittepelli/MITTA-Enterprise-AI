@@ -292,15 +292,12 @@ Add this repository **Secret**:
 
 **Important:** `ECR_REPOSITORY_NAME` is just the name, **not** the full ECR URI. The ECR login action provides the registry URL.
 
-The deployment workflow should:
+The workflow in `.github/workflows/cicd.yaml`:
 
-1. Trigger on a push to `main` (optionally ignore README-only changes).
-2. Run genuine linting and tests as they are added. A Python syntax check is not a substitute for tests.
-3. Authenticate to AWS using OIDC.
-4. Build the Docker image and tag it with `${{ github.sha }}`.
-5. Push the image to ECR.
-6. Run the deployment job on the trusted EC2 runner (`runs-on: [self-hosted, linux, x64, Mitta-ec2]`, if that label is registered).
-7. Pull the exact image, replace the container, and verify application health.
+1. Triggers on pushes to `main` or a manual dispatch from `main`.
+2. Checks Python syntax, authenticates to AWS using OIDC, and builds and pushes an image tagged with `${{ github.sha }}`.
+3. Runs the deployment job on the trusted EC2 runner (`runs-on: [self-hosted, linux, x64, Mitta-ec2]`).
+4. Pulls the exact image, replaces the container, and checks both health endpoints. If health checks fail, it attempts to restore the previous image.
 
 Example deployment commands executed **on the EC2 runner**:
 
