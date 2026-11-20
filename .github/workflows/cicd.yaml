@@ -37,6 +37,7 @@ jobs:
 
   build-and-push:
     name: Build and push image - Continuous Delivery
+    environment: production
     if: github.ref == 'refs/heads/main'
     needs: integration
     runs-on: self-hosted
