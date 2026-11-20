@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   integration:
-    name: Integration checks
+    name: Continuous Integration checks
     runs-on: self-hosted
     steps:
       - name: Check out source
@@ -36,7 +36,7 @@ jobs:
         run: python -m compileall -q app worker
 
   build-and-push:
-    name: Build and push image
+    name: Build and push image - Continuous Delivery
     if: github.ref == 'refs/heads/main'
     needs: integration
     runs-on: self-hosted
@@ -73,8 +73,8 @@ jobs:
           push: true
           tags: ${{ steps.image.outputs.image }}
 
-  deploy:
-    name: Deploy to EC2
+  Continuous Deployment:
+    name: Deploy to EC2 - Continuous Deployment
     if: github.ref == 'refs/heads/main'
     needs: build-and-push
     runs-on: [self-hosted, linux, x64, mitta-ec2]
