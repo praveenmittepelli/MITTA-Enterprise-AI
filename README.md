@@ -275,6 +275,31 @@ This repository's intended deployment pattern uses **GitHub Actions + Amazon ECR
 4. **GitHub IAM role:** Configure GitHub Actions OIDC for temporary credentials, with permissions to push to the target ECR repository and a trust policy restricted to your repository/branch.
 5. **Runtime configuration:** Store the application environment securely on EC2 (for a basic demo, `/opt/Mitta/.env` with restrictive permissions; prefer a managed secret store in production).
 
+For the GitHub IAM role, register `https://token.actions.githubusercontent.com` as an IAM OIDC provider with `sts.amazonaws.com` as an audience. A trust policy for pushes and manual runs on `main` can use these conditions (replace the account, owner, and repository placeholders):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::AWS_ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub": "repo:OWNER/REPOSITORY:ref:refs/heads/main"
+        }
+      }
+    }
+  ]
+}
+```
+
+Keep the `sub` value aligned with the workflow context: this workflow does not use a GitHub environment or a reusable workflow. If the role trust policy checks another claim, confirm that claim is present in the GitHub OIDC token; otherwise AWS can reject the request with `Required source key does not exist in identity token`.
+
 ### GitHub Actions configuration
 
 Add the following repository **Variables** under `Settings → Secrets and variables → Actions → Variables`:
