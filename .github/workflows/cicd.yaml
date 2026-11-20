@@ -73,7 +73,7 @@ jobs:
           push: true
           tags: ${{ steps.image.outputs.image }}
 
-  Continuous Deployment:
+  deploy:
     name: Deploy to EC2 - Continuous Deployment
     if: github.ref == 'refs/heads/main'
     needs: build-and-push
