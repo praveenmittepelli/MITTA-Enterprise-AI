@@ -57,6 +57,8 @@ jobs:
           echo "JWT Payload Keys:"
           echo "$TOKEN" | cut -d '.' -f2 | base64 -d 2>/dev/null | jq 'keys'
 
+          echo "Role Name: $(echo "${{ secrets.AWS_ROLE_ARN }}" | awk -F'/' '{print $NF}')"
+
 
 
       - name: Configure AWS credentials
