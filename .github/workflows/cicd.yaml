@@ -65,7 +65,7 @@ jobs:
         id: image
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
+          REPOSITORY: ${{ vars.ECR_REPOSITORY_NAME }}
         run: |
           set -Eeuo pipefail
           if [[ -z "$REGISTRY" || -z "$REPOSITORY" ]]; then
