@@ -273,7 +273,32 @@ This repository's intended deployment pattern uses **GitHub Actions + Amazon ECR
 2. **EC2:** Launch a Linux instance with Docker, AWS CLI, and a GitHub Actions self-hosted runner. Restrict network access and protect the runner.
 3. **EC2 IAM role:** Grant the permissions required to pull ECR images and invoke the application services (Bedrock and the specific S3 bucket). Avoid permanent access keys on the instance.
 4. **GitHub IAM role:** Configure GitHub Actions OIDC for temporary credentials, with permissions to push to the target ECR repository and a trust policy restricted to your repository/branch.
-5. **Runtime configuration:** Store the application environment securely on EC2 (for a basic demo, `/opt/Mitta/.env` with restrictive permissions; prefer a managed secret store in production).
+5. **Runtime configuration:** Create `/opt/Mitta/.env` on the EC2 instance itself, owned by (or readable by) the account running the self-hosted Actions runner. The deploy job requires this file; it does not copy it from the repository or create it. Keep it private and prefer a managed secret store in production.
+
+   For a basic setup, substitute the Linux user and group that run your GitHub Actions runner:
+
+   ```bash
+   RUNNER_USER=actions-runner
+   RUNNER_GROUP=actions-runner
+   sudo install -d -o "$RUNNER_USER" -g "$RUNNER_GROUP" -m 750 /opt/Mitta
+   sudo -u "$RUNNER_USER" install -m 600 /dev/null /opt/Mitta/.env
+   sudo -u "$RUNNER_USER" nano /opt/Mitta/.env
+   sudo -u "$RUNNER_USER" test -r /opt/Mitta/.env
+   ```
+
+   Set the app's runtime values in that file, for example:
+
+   ```dotenv
+   AWS_REGION=us-east-2
+   S3_BUCKET=your-private-document-bucket
+   DATABASE_URL=postgresql://USER:PASSWORD@HOST/DATABASE?sslmode=require
+   PINECONE_API_KEY=your-pinecone-key
+   PINECONE_INDEX_NAME=mitta-rag-index
+   PINECONE_CLOUD=aws
+   PINECONE_REGION=us-east-2
+   ```
+
+   Use your real service values; do not commit them. On EC2, omit `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` when using an instance role. The runner account must be able to read `/opt/Mitta/.env`; otherwise the deploy job exits before replacing the running container.
 
 For the GitHub IAM role, register `https://token.actions.githubusercontent.com` as an IAM OIDC provider with `sts.amazonaws.com` as an audience. A trust policy for pushes and manual runs on `main` can use these conditions (replace the account, owner, and repository placeholders):
 
