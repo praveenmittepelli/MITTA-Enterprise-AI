@@ -10,10 +10,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
-
-env:
-  AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-2' }}
 
 concurrency:
   group: mitta-aws-production-deployment
@@ -39,38 +35,24 @@ jobs:
     name: Build and push image - Continuous Delivery
     if: github.ref == 'refs/heads/main'
     needs: integration
+    environment: production
     runs-on: self-hosted
     permissions:
-      id-token: write
       contents: read
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-2' }}
     outputs:
       image: ${{ steps.image.outputs.image }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Debug OIDC claims and raw STS response
-        run: |
-          TOKEN=$(curl -sH "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r '.value')
-          PAYLOAD=$(echo "$TOKEN" | cut -d. -f2 | tr '_-' '/+')
-          case $(( ${#PAYLOAD} % 4 )) in 2) PAYLOAD="$PAYLOAD==";; 3) PAYLOAD="$PAYLOAD=";; esac
-          echo "$PAYLOAD" | base64 -d | jq '{sub, aud, iss, repository, repository_id, repository_owner_id, ref}'
-
-          aws sts assume-role-with-web-identity \
-            --role-arn "${{ secrets.AWS_ROLE_ARN }}" \
-            --role-session-name oidc-debug \
-            --web-identity-token "$TOKEN" \
-            --query 'AssumedRoleUser.Arn' --output text || true
-
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
-
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-2' }}
-          role-skip-session-tagging: true
 
       - name: Log in to Amazon ECR
         id: login-ecr
@@ -97,10 +79,19 @@ jobs:
     name: Deploy to EC2 - Continuous Deployment
     if: github.ref == 'refs/heads/main'
     needs: build-and-push
+    environment: production
     runs-on: [self-hosted, linux, x64, mitta-ec2]
     env:
       IMAGE: ${{ needs.build-and-push.outputs.image }}
+      AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-2' }}
     steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-2' }}
+
       - name: Deploy and verify application
         shell: bash
         run: |
