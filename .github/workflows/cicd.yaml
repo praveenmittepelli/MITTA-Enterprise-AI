@@ -94,10 +94,11 @@ jobs:
 
       - name: Deploy and verify application
         shell: bash
+        environment: production
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
-          S3_BUCKET: ${{ vars.S3_BUCKET }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
         run: |
           set -Eeuo pipefail
 
@@ -107,7 +108,7 @@ jobs:
           deployment_succeeded=false
 
           if [[ -z "$DATABASE_URL" || -z "$PINECONE_API_KEY" || -z "$S3_BUCKET" ]]; then
-            echo "Set DATABASE_URL and PINECONE_API_KEY as production secrets, and S3_BUCKET as a production variable." >&2
+            echo "Set DATABASE_URL and PINECONE_API_KEY as production secrets, and S3_BUCKET as a production secret." >&2
             exit 1
           fi
 
