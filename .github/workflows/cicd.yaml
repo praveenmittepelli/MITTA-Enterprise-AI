@@ -94,7 +94,7 @@ jobs:
 
       - name: Deploy and verify application
         shell: bash
-        environment: production
+        
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
