@@ -65,8 +65,14 @@ jobs:
         id: image
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
-        run: echo "image=$REGISTRY/$REPOSITORY:$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          REPOSITORY: ${{ vars.ECR_REPOSITORY_NAME }}
+        run: |
+          set -Eeuo pipefail
+          if [[ -z "$REGISTRY" || -z "$REPOSITORY" ]]; then
+            echo "Set ECR_REPOSITORY_NAME as a GitHub Actions production variable and verify the ECR login output." >&2
+            exit 1
+          fi
+          echo "image=$REGISTRY/$REPOSITORY:$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
@@ -103,6 +109,10 @@ jobs:
           set -Eeuo pipefail
 
           container_name="mitta"
+          if [[ -z "$IMAGE" || "$IMAGE" != */* ]]; then
+            echo "Build job did not provide a valid registry-qualified image URI; check ECR_REPOSITORY_NAME in the GitHub Actions production variables." >&2
+            exit 1
+          fi
           registry="${IMAGE%%/*}"
           previous_image=""
           deployment_succeeded=false
