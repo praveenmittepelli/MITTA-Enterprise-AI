@@ -94,6 +94,10 @@ jobs:
 
       - name: Deploy and verify application
         shell: bash
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
+          S3_BUCKET: ${{ vars.S3_BUCKET }}
         run: |
           set -Eeuo pipefail
 
@@ -102,11 +106,12 @@ jobs:
           previous_image=""
           deployment_succeeded=false
 
-          if [[ ! -r "$env_file" ]]; then
-            echo "Runtime environment file is missing or unreadable by the self-hosted runner: $env_file" >&2
-            echo "Create it on this EC2 instance and grant the runner user read access; see the CI/CD deployment setup in README.md." >&2
+          if [[ -z "$DATABASE_URL" || -z "$PINECONE_API_KEY" || -z "$S3_BUCKET" ]]; then
+            echo "Set DATABASE_URL and PINECONE_API_KEY as production secrets, and S3_BUCKET as a production variable." >&2
             exit 1
           fi
+
+          app_env=(--env DATABASE_URL --env PINECONE_API_KEY --env S3_BUCKET)
 
           aws ecr get-login-password --region "$AWS_REGION" \
             | docker login --username AWS --password-stdin "$registry"
@@ -125,7 +130,7 @@ jobs:
                 docker run -d \
                   --name "$container_name" \
                   --restart unless-stopped \
-                  --env-file "$env_file" \
+                  "${app_env[@]}" \
                   -p 8000:8000 \
                   "$previous_image" || echo "Previous container could not be restored." >&2
               fi
@@ -137,7 +142,7 @@ jobs:
           docker run -d \
             --name "$container_name" \
             --restart unless-stopped \
-            --env-file "$env_file" \
+            "${app_env[@]}" \
             -p 8000:8000 \
             "$IMAGE"
 
