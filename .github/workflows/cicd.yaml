@@ -57,8 +57,7 @@ jobs:
       - name: Log in to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
-        with:
-          mask-password: 'false'
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -83,16 +82,36 @@ jobs:
           tags: ${{ steps.image.outputs.image }}
 
   deploy:
+    name: Deploy to EC2 - Continuous Deployment
+    if: github.ref == 'refs/heads/main'
+    needs: build-and-push
+    environment: production
+    runs-on: [self-hosted, linux, x64, mitta-ec2]
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-2' }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-2' }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
       - name: Deploy and verify application
         shell: bash
         env:
-          IMAGE: ${{ steps.login-ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY_NAME }}:${{ github.sha }}
+          IMAGE: ${{ needs.build-and-push.outputs.image }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
           HOST_PORT: ${{ vars.APP_HOST_PORT || '8000' }}
           CONTAINER_PORT: ${{ vars.APP_CONTAINER_PORT || '8000' }}
-          run: |
+          HEALTH_PATH: ${{ vars.APP_HEALTH_PATH || '/' }}
+        run: |
           set -Eeuo pipefail
 
           container_name="mitta"
@@ -155,5 +174,10 @@ jobs:
           fi
 
           docker image prune -f   # keeps the EC2 disk from filling up with old images
-          echo "Deployed $IMAGE -> http://<public-ip>:${HOST_PORT}"
-          
+
+          token="$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+            -H "X-aws-ec2-metadata-token-ttl-seconds: 60" || true)"
+          public_ip="$(curl -s -H "X-aws-ec2-metadata-token: $token" \
+            http://169.254.169.254/latest/meta-data/public-ipv4 || true)"
+
+          echo "Deployed $IMAGE -> http://${public_ip:-<public-ip>}:${HOST_PORT}"
