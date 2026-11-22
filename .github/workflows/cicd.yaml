@@ -18,7 +18,7 @@ concurrency:
 jobs:
   integration:
     name: Continuous Integration checks
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -36,7 +36,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     needs: integration
     environment: production
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     env:
