@@ -83,25 +83,6 @@ jobs:
           tags: ${{ steps.image.outputs.image }}
 
   deploy:
-    name: Deploy to EC2 - Continuous Deployment
-    if: github.ref == 'refs/heads/main'
-    needs: build-and-push
-    environment: production
-    runs-on: [self-hosted, linux, x64, mitta-ec2]
-    env:
-      AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-2' }}
-    steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-2' }}
-
-      - name: Log in to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
       - name: Deploy and verify application
         shell: bash
         env:
@@ -109,23 +90,70 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          HOST_PORT: ${{ vars.APP_HOST_PORT || '8000' }}
+          CONTAINER_PORT: ${{ vars.APP_CONTAINER_PORT || '8000' }}
+          HEALTH_PATH: ${{ vars.APP_HEALTH_PATH || '/' }}
         run: |
           set -Eeuo pipefail
 
           container_name="mitta"
-          if [[ -z "$IMAGE" || "$IMAGE" != */* ]]; then
-            echo "Build job did not provide a valid registry-qualified image URI; check ECR_REPOSITORY_NAME in the GitHub Actions production variables." >&2
-            exit 1
-          fi
           previous_image=""
           deployment_succeeded=false
 
+          if [[ -z "$IMAGE" || "$IMAGE" != */* ]]; then
+            echo "Invalid image URI; check ECR_REPOSITORY_NAME." >&2
+            exit 1
+          fi
           if [[ -z "$DATABASE_URL" || -z "$PINECONE_API_KEY" || -z "$S3_BUCKET" ]]; then
-            echo "Set DATABASE_URL and PINECONE_API_KEY as production secrets, and S3_BUCKET as a production secret." >&2
+            echo "Set DATABASE_URL, PINECONE_API_KEY and S3_BUCKET as production secrets." >&2
             exit 1
           fi
 
           app_env=(--env DATABASE_URL --env PINECONE_API_KEY --env S3_BUCKET)
 
           docker pull "$IMAGE"
-          # ... keep the rest of your container stop/run/healthcheck script as-is
+
+          # Remember the currently running image for rollback, then remove the old container
+          if docker container inspect "$container_name" >/dev/null 2>&1; then
+            previous_image="$(docker inspect --format '{{.Config.Image}}' "$container_name")"
+            docker rm -f "$container_name"
+          fi
+
+          start_container() {
+            docker run -d --name "$container_name" --restart unless-stopped \
+              -p "${HOST_PORT}:${CONTAINER_PORT}" \
+              "${app_env[@]}" \
+              "$1"
+          }
+
+          start_container "$IMAGE"
+
+          # Health check: up to ~150 seconds (RAG apps can be slow to load models)
+          for i in $(seq 1 30); do
+            running="$(docker inspect -f '{{.State.Running}}' "$container_name" 2>/dev/null || echo false)"
+            if [[ "$running" != "true" ]]; then
+              echo "Container stopped during startup." >&2
+              break
+            fi
+            code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${HOST_PORT}${HEALTH_PATH}" || true)"
+            echo "Attempt $i: HTTP $code"
+            if [[ "$code" =~ ^[234] ]]; then
+              deployment_succeeded=true
+              break
+            fi
+            sleep 5
+          done
+
+          if [[ "$deployment_succeeded" != "true" ]]; then
+            echo "::error::Health check failed. Container logs:" >&2
+            docker logs --tail 100 "$container_name" >&2 || true
+            docker rm -f "$container_name" || true
+            if [[ -n "$previous_image" ]]; then
+              echo "Rolling back to $previous_image" >&2
+              start_container "$previous_image"
+            fi
+            exit 1
+          fi
+
+          docker image prune -f   # keeps the EC2 disk from filling up with old images
+          echo "Deployed $IMAGE -> http://<public-ip>:${HOST_PORT}"
