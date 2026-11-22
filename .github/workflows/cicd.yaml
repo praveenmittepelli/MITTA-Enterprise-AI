@@ -92,8 +92,7 @@ jobs:
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
           HOST_PORT: ${{ vars.APP_HOST_PORT || '8000' }}
           CONTAINER_PORT: ${{ vars.APP_CONTAINER_PORT || '8000' }}
-          HEALTH_PATH: ${{ vars.APP_HEALTH_PATH || '/' }}
-        run: |
+          run: |
           set -Eeuo pipefail
 
           container_name="mitta"
