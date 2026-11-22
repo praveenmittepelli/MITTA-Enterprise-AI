@@ -156,3 +156,4 @@ jobs:
 
           docker image prune -f   # keeps the EC2 disk from filling up with old images
           echo "Deployed $IMAGE -> http://<public-ip>:${HOST_PORT}"
+          
