@@ -42,7 +42,7 @@ jobs:
     env:
       AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-2' }}
     outputs:
-      image: ${{ steps.image.outputs.image }}
+      image: ${{ steps.login-ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY_NAME }}:${{ github.sha }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
